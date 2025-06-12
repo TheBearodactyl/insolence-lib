@@ -317,7 +317,7 @@ macro_rules! def_module {
 }
 
 def_module!(
-    insolence,
+    insolencelib,
     funcs [
         between,
         largest_val,
