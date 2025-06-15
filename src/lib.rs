@@ -565,7 +565,7 @@ fn count_num_of_joker(lua: &Lua, (prefix, key): (String, String)) -> LuaResult<u
 }
 
 #[mlua::lua_module]
-fn insolence(lua: &Lua) -> LuaResult<LuaTable> {
+fn libinsolence(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
 
     exports.set(stringify!(between), lua.create_function(between)?)?;
@@ -629,7 +629,7 @@ fn insolence(lua: &Lua) -> LuaResult<LuaTable> {
     )?;
     exports.set(stringify!(mod_cond), lua.create_function(mod_cond)?)?;
     exports.set(
-        stringify!(count_num_of_joker),
+        "count_num_of_joker",
         lua.create_function(count_num_of_joker)?,
     )?;
 
