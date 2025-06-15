@@ -1,12 +1,13 @@
 [package]
-name = "insolencelib"
+name = "insolence"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [lib]
-name = "insolencelib"
+name = "insolence"
 crate-type = ["cdylib"]
 
 [dependencies]
-mlua = { version = "0.10.5", features = ["lua54", "module"] }
+mlua = { version = "0.10.5", features = ["luajit", "module"] }
 rand = "0.9.1"

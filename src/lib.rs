@@ -279,6 +279,35 @@ fn random_table_of_strs(lua: &Lua, (str_len, tbl_len): (u32, u32)) -> LuaResult<
     Ok(str_tbl)
 }
 
+fn rand_table_of_hex_codes(lua: &Lua, len: u32) -> LuaResult<LuaTable> {
+    let col_table = lua.create_table()?;
+
+    for _ in 0..=len {
+        let rand_hex_code = rand_hex_code(lua, ())?;
+        col_table.push(rand_hex_code)?;
+    }
+
+    Ok(col_table)
+}
+
+fn mod_vals(lua: &Lua, (input, modifier): (LuaValue, f64)) -> LuaResult<LuaValue> {
+    if let LuaValue::Number(inp) = input {
+        Ok(LuaValue::Number(inp * modifier))
+    } else if let LuaValue::Table(inp) = input {
+        let result_tbl = lua.create_table()?;
+
+        for pair in inp.pairs::<LuaValue, LuaValue>() {
+            let (k, v) = pair?;
+
+            result_tbl.set(k, mod_vals(lua, (v, modifier))?)?;
+        }
+
+        Ok(LuaValue::Table(result_tbl))
+    } else {
+        Ok(input)
+    }
+}
+
 fn wave_number(_: &Lua, num: f64) -> LuaResult<f64> {
     if num == 0.0 {
         Ok(1.0)
@@ -300,41 +329,233 @@ fn clamp(_: &Lua, (num, min, max): (f64, f64, f64)) -> LuaResult<f64> {
 }
 
 fn chance(_: &Lua, percent_chance: f32) -> LuaResult<bool> {
+    rand::rng().reseed().expect("Failed to reseed");
+
     Ok(percent_chance <= rand::rng().random_range(0.0..=100.0))
 }
 
-macro_rules! def_module {
-    ($mod_name:ident, funcs [$($func_name:ident),*]) => {
-        #[mlua::lua_module]
-        fn $mod_name(lua: &Lua) -> LuaResult<LuaTable> {
-            let exports = lua.create_table()?;
-            $(
-                exports.set(stringify!($func_name), lua.create_function($func_name)?)?;
-            )*
-            Ok(exports)
+fn exponentiate(lua: &Lua, (mut base, mut power): (f64, f64)) -> LuaResult<f64> {
+    if power == 0.0 {
+        return Ok(1.0);
+    } else if power == 1.0 {
+        return Ok(base);
+    } else if power < 0.0 {
+        return Ok(1.0 / exponentiate(lua, (base, -power))?);
+    }
+
+    let mut result = 1.0;
+
+    while power > 0.0 {
+        if power % 2.0 == 1.0 {
+            result *= base;
         }
-    };
+
+        base *= base;
+        power = (power / 2.0).floor();
+    }
+
+    Ok(result)
 }
 
-def_module!(
-    insolencelib,
-    funcs [
-        between,
-        largest_val,
-        average_table_amt,
-        reverse_table,
-        capitalize,
-        every_day_im_shufflin,
-        random_str,
-        rand_hex_code,
-        rand_int,
-        rand_num,
-        wave_number,
-        clamp,
-        chance,
-        within,
-        random_table_of_strs,
-        rand_mem_addr,
-        placeholder_sprite
-    ]
-);
+fn boobs_sprite(lua: &Lua, mod_cfg: LuaValue) -> LuaResult<LuaTable> {
+    let sprite_tbl = lua.create_table()?;
+
+    if let LuaValue::Table(modcfg) = mod_cfg {
+        let adult_mode = modcfg
+            .get::<LuaTable>("config")?
+            .get::<LuaValue>("adult_mode")?
+            .as_boolean()
+            .unwrap();
+
+        if !adult_mode {
+            sprite_tbl.set("x", 1000)?;
+            sprite_tbl.set("y", 1000)?;
+        } else if adult_mode {
+            sprite_tbl.set("x", 12)?;
+            sprite_tbl.set("y", 2)?;
+        } else {
+            sprite_tbl.set("x", 1000)?;
+            sprite_tbl.set("y", 1000)?;
+        }
+    }
+
+    Ok(sprite_tbl)
+}
+
+fn include_content(lua: &Lua, (name, ty): (String, String)) -> LuaResult<()> {
+    let path = format!("src/content/{}/{}.lua", ty, name);
+
+    let smods: LuaTable = lua.globals().get("SMODS")?;
+    let load_file: LuaFunction = smods.get("load_file")?;
+    let func: LuaFunction = load_file.call::<LuaFunction>(path)?;
+
+    func.call::<LuaFunction>(())?;
+
+    Ok(())
+}
+
+fn include(lua: &Lua, path: String) -> LuaResult<()> {
+    let smods: LuaTable = lua.globals().get("SMODS")?;
+    let load_file: LuaFunction = smods.get("load_file")?;
+    let func: LuaFunction = load_file.call::<LuaFunction>(path)?;
+
+    func.call::<LuaFunction>(())?;
+
+    Ok(())
+}
+
+fn word_to_color(_: &Lua, word: String) -> LuaResult<String> {
+    let mut hex_components: Vec<String> = Vec::new();
+
+    for ch in word.chars() {
+        let ascii_val = ch as u8;
+        let hex = format!("{:02x}", ascii_val);
+
+        hex_components.push(hex.chars().next().unwrap().to_string());
+    }
+
+    while hex_components.len() < 3 {
+        if let Some(last) = hex_components.last().cloned() {
+            hex_components.push(last);
+        }
+    }
+
+    let hex_col = hex_components.concat();
+
+    Ok(hex_col)
+}
+
+fn random_joker(
+    lua: &Lua,
+    (seed, excluded_flags, banned_card, pool, no_undiscovered): (
+        Option<String>,
+        Option<LuaTable>,
+        Option<String>,
+        Option<LuaTable>,
+        Option<bool>,
+    ),
+) -> LuaResult<LuaValue> {
+    // Default excluded flags if not provided
+    let excluded_flags = excluded_flags.unwrap_or_else(|| {
+        lua.create_table_from(vec![(1, "hidden"), (2, "no_doe"), (3, "no_grc")])
+            .unwrap()
+    });
+
+    let mut selection = lua.create_table()?;
+    selection.set("key", "n/a")?;
+
+    #[allow(unused_assignments)]
+    let mut passes = 0;
+    let mut tries = 500;
+
+    let pseudoseed: mlua::Function = lua.globals().get("pseudoseed")?;
+    let pseudorandom_element: mlua::Function = lua.globals().get("pseudorandom_element")?;
+    let g_table: LuaTable = lua.globals().get("G")?;
+    let p_centers: LuaTable = g_table.get("P_CENTERS")?;
+
+    // Get the pool table or default to G.P_CENTER_POOLS.Joker
+    let pool_table = if let Some(pool) = pool {
+        pool
+    } else {
+        let p_center_pools: LuaTable = g_table.get("P_CENTER_POOLS")?;
+        p_center_pools.get("Joker")?
+    };
+
+    loop {
+        tries -= 1;
+        passes = 0;
+
+        // Call pseudorandom_element
+        let random_element: LuaTable = pseudorandom_element.call((
+            pool_table.clone(),
+            pseudoseed.call::<LuaValue>(seed.as_deref().unwrap_or("grc"))?,
+        ))?;
+
+        let key: String = random_element.get("key")?;
+        selection = p_centers.get(key.clone())?;
+
+        // Check discovered status
+        let discovered: bool = selection.get("discovered").unwrap_or(false);
+        if discovered || !no_undiscovered.unwrap_or(false) {
+            // Check banned card
+            if banned_card.is_none()
+                || (banned_card.is_some() && banned_card.as_ref().unwrap() != &key)
+            {
+                passes += 1;
+            }
+        }
+
+        // Check exit conditions
+        let excluded_flags_len = excluded_flags.len()?;
+        if passes >= excluded_flags_len || tries <= 0 {
+            if tries <= 0 && no_undiscovered.unwrap_or(false) {
+                return p_centers.get::<LuaValue>("c_strength");
+            } else {
+                return Ok(LuaValue::Table(selection));
+            }
+        }
+    }
+}
+
+#[mlua::lua_module]
+fn insolence(lua: &Lua) -> LuaResult<LuaTable> {
+    let exports = lua.create_table()?;
+
+    exports.set(stringify!(between), lua.create_function(between)?)?;
+    exports.set(stringify!(boobs_sprite), lua.create_function(boobs_sprite)?)?;
+    exports.set(stringify!(largest_val), lua.create_function(largest_val)?)?;
+    exports.set(
+        stringify!(average_table_amt),
+        lua.create_function(average_table_amt)?,
+    )?;
+    exports.set(
+        stringify!(reverse_table),
+        lua.create_function(reverse_table)?,
+    )?;
+    exports.set(stringify!(capitalize), lua.create_function(capitalize)?)?;
+    exports.set(
+        stringify!(every_day_im_shufflin),
+        lua.create_function(every_day_im_shufflin)?,
+    )?;
+    exports.set(stringify!(mod_vals), lua.create_function(mod_vals)?)?;
+    exports.set(stringify!(random_str), lua.create_function(random_str)?)?;
+    exports.set(
+        stringify!(rand_hex_code),
+        lua.create_function(rand_hex_code)?,
+    )?;
+    exports.set(stringify!(exponentiate), lua.create_function(exponentiate)?)?;
+    exports.set(stringify!(rand_int), lua.create_function(rand_int)?)?;
+    exports.set(stringify!(rand_num), lua.create_function(rand_num)?)?;
+    exports.set(stringify!(wave_number), lua.create_function(wave_number)?)?;
+    exports.set(stringify!(clamp), lua.create_function(clamp)?)?;
+    exports.set(stringify!(chance), lua.create_function(chance)?)?;
+    exports.set(stringify!(within), lua.create_function(within)?)?;
+    exports.set(
+        stringify!(random_table_of_strs),
+        lua.create_function(random_table_of_strs)?,
+    )?;
+    exports.set(
+        stringify!(rand_mem_addr),
+        lua.create_function(rand_mem_addr)?,
+    )?;
+    exports.set(
+        stringify!(placeholder_sprite),
+        lua.create_function(placeholder_sprite)?,
+    )?;
+    exports.set(
+        stringify!(include_content),
+        lua.create_function(include_content)?,
+    )?;
+    exports.set(stringify!(include), lua.create_function(include)?)?;
+    exports.set(
+        stringify!(word_to_color),
+        lua.create_function(word_to_color)?,
+    )?;
+    exports.set(stringify!(random_joker), lua.create_function(random_joker)?)?;
+    exports.set(
+        stringify!(rand_table_of_hex_codes),
+        lua.create_function(rand_table_of_hex_codes)?,
+    )?;
+
+    Ok(exports)
+}
