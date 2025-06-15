@@ -425,15 +425,17 @@ fn word_to_color(_: &Lua, word: String) -> LuaResult<String> {
     Ok(hex_col)
 }
 
+type RandJokerParams = (
+    Option<String>,
+    Option<LuaTable>,
+    Option<String>,
+    Option<LuaTable>,
+    Option<bool>,
+);
+
 fn random_joker(
     lua: &Lua,
-    (seed, excluded_flags, banned_card, pool, no_undiscovered): (
-        Option<String>,
-        Option<LuaTable>,
-        Option<String>,
-        Option<LuaTable>,
-        Option<bool>,
-    ),
+    (seed, excluded_flags, banned_card, pool, no_undiscovered): RandJokerParams,
 ) -> LuaResult<LuaValue> {
     // Default excluded flags if not provided
     let excluded_flags = excluded_flags.unwrap_or_else(|| {
@@ -497,6 +499,71 @@ fn random_joker(
     }
 }
 
+fn is_rigged_cryptid(lua: &Lua, card: LuaTable) -> LuaResult<bool> {
+    let can_load = lua
+        .globals()
+        .get::<Option<LuaTable>>("SMODS")?
+        .and_then(|smods| smods.get::<Option<LuaTable>>("Mods").ok().flatten())
+        .and_then(|mods| mods.get::<Option<LuaTable>>("Cryptid").ok().flatten())
+        .and_then(|mods| mods.get::<Option<bool>>("can_load").ok().flatten())
+        .unwrap_or(false);
+
+    if !can_load {
+        return Ok(false);
+    }
+
+    let cry_rigged = card
+        .get::<Option<LuaTable>>("ability")?
+        .and_then(|ability| ability.get::<Option<bool>>("cry_rigged").ok().flatten())
+        .unwrap_or(false);
+
+    Ok(cry_rigged)
+}
+
+fn mod_cond(
+    lua: &Lua,
+    (mod_id, if_exists, otherwise): (String, LuaValue, LuaValue),
+) -> LuaResult<LuaValue> {
+    let can_load = lua
+        .globals()
+        .get::<Option<LuaTable>>("SMODS")?
+        .and_then(|smods| smods.get::<Option<LuaTable>>("Mods").ok().flatten())
+        .and_then(|mods| mods.get::<Option<LuaTable>>(mod_id).ok().flatten())
+        .and_then(|mod_entry| mod_entry.get::<Option<bool>>("can_load").ok().flatten())
+        .unwrap_or(false);
+
+    Ok(if can_load { if_exists } else { otherwise })
+}
+
+fn count_num_of_joker(lua: &Lua, (prefix, key): (String, String)) -> LuaResult<u32> {
+    let mut num_of_joker = 0;
+    let target_name = format!("j_{}_{}", prefix, key);
+    let cards = lua
+        .globals()
+        .get::<Option<LuaTable>>("G")?
+        .and_then(|g| g.get::<Option<LuaTable>>("jokers").ok().flatten())
+        .and_then(|jokers| jokers.get::<Option<LuaTable>>("cards").ok().flatten());
+
+    if let Some(card_table) = cards {
+        for pair in card_table.pairs::<LuaValue, LuaTable>().flatten() {
+            let (_, card) = pair;
+            let name_matches = card
+                .get::<Option<LuaTable>>("ability")
+                .ok()
+                .flatten()
+                .and_then(|ability| ability.get::<Option<String>>("name").ok().flatten())
+                .map(|name| name == target_name)
+                .unwrap_or(false);
+
+            if name_matches {
+                num_of_joker += 1;
+            }
+        }
+    }
+
+    Ok(num_of_joker)
+}
+
 #[mlua::lua_module]
 fn insolence(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
@@ -555,6 +622,15 @@ fn insolence(lua: &Lua) -> LuaResult<LuaTable> {
     exports.set(
         stringify!(rand_table_of_hex_codes),
         lua.create_function(rand_table_of_hex_codes)?,
+    )?;
+    exports.set(
+        stringify!(is_rigged_cryptid),
+        lua.create_function(is_rigged_cryptid)?,
+    )?;
+    exports.set(stringify!(mod_cond), lua.create_function(mod_cond)?)?;
+    exports.set(
+        stringify!(count_num_of_joker),
+        lua.create_function(count_num_of_joker)?,
     )?;
 
     Ok(exports)
