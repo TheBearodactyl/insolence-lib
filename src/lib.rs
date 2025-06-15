@@ -590,19 +590,6 @@ fn register_items(lua: &Lua, (items, path): (Vec<String>, String)) -> LuaResult<
     Ok(())
 }
 
-fn create_gradient(lua: &Lua, (key, colors): (String, LuaTable)) -> LuaResult<LuaValue> {
-    let globals = lua.globals();
-
-    let smods: LuaTable = globals.get("SMODS")?;
-    let gradient_func: LuaFunction = smods.get("Gradient")?;
-
-    let args = lua.create_table()?;
-    args.set("key", key)?;
-    args.set("colours", colors)?;
-
-    gradient_func.call::<LuaValue>(args)
-}
-
 #[mlua::lua_module]
 fn libinsolence(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
@@ -672,7 +659,6 @@ fn libinsolence(lua: &Lua) -> LuaResult<LuaTable> {
         lua.create_function(count_num_of_joker)?,
     )?;
     exports.set("register_items", lua.create_function(register_items)?)?;
-    exports.set("create_gradient", lua.create_function(create_gradient)?)?;
 
     Ok(exports)
 }

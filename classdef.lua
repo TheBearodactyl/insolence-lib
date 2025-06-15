@@ -29,4 +29,3 @@
 --- @field mod_cond fun(mod_id: string, if_exists: any, otherwise: any): any
 --- @field count_num_of_joker fun(prefix: string, key: string): integer
 --- @field register_items fun(items: string[], path: string)
---- @field create_gradient fun(key: string, colors: string[]): SMODS.Gradient
