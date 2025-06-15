@@ -564,6 +564,45 @@ fn count_num_of_joker(lua: &Lua, (prefix, key): (String, String)) -> LuaResult<u
     Ok(num_of_joker)
 }
 
+fn register_items(lua: &Lua, (items, path): (Vec<String>, String)) -> LuaResult<()> {
+    let smods: LuaTable = lua.globals().get("SMODS")?;
+    let load_file: LuaFunction = smods.get("load_file")?;
+
+    for item in items {
+        let full_path = format!("{}/{}.lua", path, item);
+        let result: (LuaValue, LuaValue) = load_file.call(full_path)?;
+
+        let (load_func, err_str) = result;
+
+        if let LuaValue::String(err) = err_str {
+            let err_msg = err.to_string_lossy();
+            return Err(mlua::Error::RuntimeError(format!(
+                "[INSOLENCE] Error: {}",
+                err_msg.as_str()
+            )));
+        }
+
+        if let LuaValue::Function(func) = load_func {
+            func.call::<LuaValue>(())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn create_gradient(lua: &Lua, (key, colors): (String, LuaTable)) -> LuaResult<LuaValue> {
+    let globals = lua.globals();
+
+    let smods: LuaTable = globals.get("SMODS")?;
+    let gradient_func: LuaFunction = smods.get("Gradient")?;
+
+    let args = lua.create_table()?;
+    args.set("key", key)?;
+    args.set("colours", colors)?;
+
+    gradient_func.call::<LuaValue>(args)
+}
+
 #[mlua::lua_module]
 fn libinsolence(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
@@ -632,6 +671,8 @@ fn libinsolence(lua: &Lua) -> LuaResult<LuaTable> {
         "count_num_of_joker",
         lua.create_function(count_num_of_joker)?,
     )?;
+    exports.set("register_items", lua.create_function(register_items)?)?;
+    exports.set("create_gradient", lua.create_function(create_gradient)?)?;
 
     Ok(exports)
 }
