@@ -44,6 +44,7 @@ mkmodule! {
         mod_cond,
         count_num_of_joker,
         register_items,
+        register_items_adv,
         animate_center
     ]
 }

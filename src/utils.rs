@@ -168,6 +168,70 @@ pub(crate) fn register_items(lua: &Lua, (items, path): (Vec<String>, String)) ->
     Ok(())
 }
 
+pub(crate) fn register_items_adv(lua: &Lua, (items, path): (LuaTable, String)) -> LuaResult<()> {
+    let smods: LuaTable = lua.globals().get("SMODS")?;
+    let load_file: LuaFunction = smods.get("load_file")?;
+    let globals = lua.globals();
+
+    for pair in items.pairs::<LuaValue, LuaValue>() {
+        let (key, val) = pair?;
+
+        let (item_name, enabled, needed_globals): (String, bool, Option<LuaTable>) =
+            match (key, val) {
+                (LuaValue::String(s), LuaValue::Table(config)) => {
+                    let name = s.to_str()?.to_string();
+                    let enabled = config.get("enabled").unwrap_or(true);
+                    let needed_globals = config.get("needed_globals").ok();
+                    (name, enabled, needed_globals)
+                }
+
+                (LuaValue::String(s), _) => (s.to_str()?.to_string(), true, None),
+
+                (LuaValue::Integer(_), LuaValue::String(s)) => {
+                    (s.to_str()?.to_string(), true, None)
+                }
+
+                _ => continue,
+            };
+
+        if !enabled {
+            continue;
+        }
+
+        if let Some(globals_needed) = needed_globals {
+            let mut all_present = true;
+            for g in globals_needed.sequence_values::<String>() {
+                let global_name = g?;
+                if globals.get::<LuaValue>(global_name.clone())?.is_nil() {
+                    all_present = false;
+                    break;
+                }
+            }
+            if !all_present {
+                continue;
+            }
+        }
+
+        let full_path = format!("{}/{}.lua", path, item_name);
+        let result: (LuaValue, LuaValue) = load_file.call(full_path)?;
+        let (load_func, err_str) = result;
+
+        if let LuaValue::String(err) = err_str {
+            return Err(mlua::Error::RuntimeError(format!(
+                "[INSOLENCE] Error in {}: {}",
+                item_name,
+                err.to_string_lossy()
+            )));
+        }
+
+        if let LuaValue::Function(func) = load_func {
+            func.call::<LuaValue>(())?;
+        }
+    }
+
+    Ok(())
+}
+
 pub(crate) fn animate_center(
     lua: &Lua,
     (center_id, center_dt_key, dt, interval, tx, ty, mx, my): (
